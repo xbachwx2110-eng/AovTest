@@ -156,11 +156,7 @@ NSString * const kDemoOverlayCameraZoomDidChangeNotification = @"kDemoOverlayCam
     _settingsContentView.hidden = YES;
     
     UILabel *info = [[UILabel alloc] initWithFrame:CGRectMake(0, 20, _settingsContentView.frame.size.width, 100)];
-    info.text = @"Demo Mode Active
-• Isolated UIKit Architecture
-• 0 Memory modifications
-• 0 Hooks or patches
-• Safe for App Store & QA";
+    info.text = @"Demo Mode Active\n• Isolated UIKit Architecture\n• 0 Memory modifications\n• 0 Hooks or patches\n• Safe for App Store & QA";
     info.font = [UIFont systemFontOfSize:12];
     info.textColor = [UIColor colorWithWhite:0.8 alpha:1.0];
     info.numberOfLines = 0;

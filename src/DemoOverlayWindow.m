@@ -13,17 +13,19 @@
     static DemoOverlayWindow *instance = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        UIWindowScene *scene = nil;
         if (@available(iOS 13.0, *)) {
-            for (UIScene *s in UIApplication.sharedApplication.connectedScenes) {
-                if ([s isKindOfClass:[UIWindowScene class]] && s.activationState == UISceneActivationStateForegroundActive) {
-                    scene = (UIWindowScene *)s;
+            UIWindowScene *activeScene = nil;
+            for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+                if ([scene isKindOfClass:[UIWindowScene class]] && scene.activationState == UISceneActivationStateForegroundActive) {
+                    activeScene = (UIWindowScene *)scene;
                     break;
                 }
             }
-        }
-        if (scene && @available(iOS 13.0, *)) {
-            instance = [[DemoOverlayWindow alloc] initWithWindowScene:scene];
+            if (activeScene) {
+                instance = [[DemoOverlayWindow alloc] initWithWindowScene:activeScene];
+            } else {
+                instance = [[DemoOverlayWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
+            }
         } else {
             instance = [[DemoOverlayWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
         }
