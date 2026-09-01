@@ -1,0 +1,17 @@
+# Exclude README
+README.md
+
+# Build output
+*.dylib
+*.o
+*.a
+*.zip
+*.tar.gz
+build/
+.build/
+
+# IDE & OS files
+.DS_Store
+.vscode/
+.idea/
+Thumbs.db

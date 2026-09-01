@@ -1,0 +1,112 @@
+name: Build iOS Dylib
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      arch:
+        description: 'Target Architecture'
+        required: true
+        default: 'arm64 + arm64e'
+        type: choice
+        options:
+          - 'arm64 + arm64e'
+          - 'arm64'
+          - 'arm64e'
+      min_ios:
+        description: 'Minimum iOS Version'
+        required: true
+        default: '12.0'
+        type: string
+
+jobs:
+  build:
+    name: Build DemoOverlayUI.dylib
+    runs-on: macos-14
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Xcode Environment
+        run: |
+          echo "Xcode Version:"
+          xcodebuild -version
+          echo "iOS SDK Path:"
+          xcrun --sdk iphoneos --show-sdk-path
+
+      - name: Determine Project Directory & Config
+        id: config
+        run: |
+          PROJECT_DIR="."
+          if [ -d "DemoOverlayUI" ] && [ -f "DemoOverlayUI/Makefile" ]; then
+            PROJECT_DIR="DemoOverlayUI"
+          fi
+          echo "PROJECT_DIR=${PROJECT_DIR}" >> $GITHUB_ENV
+
+          ARCH_FLAGS="-arch arm64 -arch arm64e"
+          if [ "${{ github.event.inputs.arch }}" == "arm64" ]; then
+            ARCH_FLAGS="-arch arm64"
+          elif [ "${{ github.event.inputs.arch }}" == "arm64e" ]; then
+            ARCH_FLAGS="-arch arm64e"
+          fi
+
+          MIN_IOS="${{ github.event.inputs.min_ios }}"
+          if [ -z "$MIN_IOS" ]; then
+            MIN_IOS="12.0"
+          fi
+
+          echo "ARCHS=${ARCH_FLAGS}" >> $GITHUB_ENV
+          echo "MIN_IOS=${MIN_IOS}" >> $GITHUB_ENV
+
+      - name: Compile Dylib
+        run: |
+          cd ${{ env.PROJECT_DIR }}
+          make clean
+          make ARCHS="${{ env.ARCHS }}" MIN_IOS="${{ env.MIN_IOS }}"
+
+      - name: Verify Binary Info
+        run: |
+          cd ${{ env.PROJECT_DIR }}
+          echo "=== File Info ==="
+          file DemoOverlayUI.dylib
+          echo "=== Architecture Info ==="
+          lipo -info DemoOverlayUI.dylib
+          echo "=== Linked Frameworks ==="
+          otool -L DemoOverlayUI.dylib
+
+      - name: Package Artifacts
+        run: |
+          cd ${{ env.PROJECT_DIR }}
+          zip -r DemoOverlayUI.zip DemoOverlayUI.dylib include/
+
+      - name: Upload Dylib Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DemoOverlayUI-dylib
+          path: |
+            ${{ env.PROJECT_DIR }}/DemoOverlayUI.dylib
+            ${{ env.PROJECT_DIR }}/DemoOverlayUI.zip
+          if-no-files-found: error
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ env.PROJECT_DIR }}/DemoOverlayUI.dylib
+            ${{ env.PROJECT_DIR }}/DemoOverlayUI.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
