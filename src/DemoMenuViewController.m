@@ -175,10 +175,10 @@ NSString * const kLobbyLoggerNotification = @"kLobbyLoggerNotification";
     _bottomBar = [[UIView alloc] initWithFrame:CGRectZero];
     _bottomBar.backgroundColor = [UIColor colorWithRed:0.10 green:0.13 blue:0.18 alpha:1.0];
     
-    // Button: Xuất TXT
+    // Button: Xuất Log & BIN
     _exportBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    [_exportBtn setTitle:@"📤 Xuất TXT" forState:UIControlStateNormal];
-    _exportBtn.titleLabel.font = [UIFont boldSystemFontOfSize:11];
+    [_exportBtn setTitle:@"📤 Xuất Log & BIN" forState:UIControlStateNormal];
+    _exportBtn.titleLabel.font = [UIFont boldSystemFontOfSize:10.5];
     _exportBtn.backgroundColor = [UIColor colorWithRed:0.12 green:0.48 blue:0.28 alpha:1.0];
     _exportBtn.layer.cornerRadius = 5.0;
     [_exportBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
@@ -295,37 +295,38 @@ NSString * const kLobbyLoggerNotification = @"kLobbyLoggerNotification";
 }
 
 - (void)exportLogAsTxt {
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+    if (paths.count == 0) return;
+    NSString *docDir = paths[0];
+    
     NSString *logText = _logTextView.text;
     if (logText.length == 0) {
-        // Nạp log từ file nếu textView rỗng
-        NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
-        if (paths.count > 0) {
-            NSString *logPath = [paths[0] stringByAppendingPathComponent:@"lobby_traffic.log"];
-            logText = [NSString stringWithContentsOfFile:logPath encoding:NSUTF8StringEncoding error:nil];
-        }
+        NSString *logPath = [docDir stringByAppendingPathComponent:@"lobby_traffic.log"];
+        logText = [NSString stringWithContentsOfFile:logPath encoding:NSUTF8StringEncoding error:nil];
     }
     if (logText.length == 0) {
         logText = [NSString stringWithFormat:@"[LOBBY_LOGGER] Log khoi tao luc %@. Chua co ket noi moi.", [NSDate date]];
     }
     
-    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
-    if (paths.count == 0) return;
-    NSString *docDir = paths[0];
     NSString *filePath = [docDir stringByAppendingPathComponent:@"lobby_log.txt"];
-    
-    NSError *err = nil;
-    [logText writeToFile:filePath atomically:YES encoding:NSUTF8StringEncoding error:&err];
-    
-    if (err) {
-        [self showToast:[NSString stringWithFormat:@"Lỗi lưu: %@", err.localizedDescription]];
-        return;
-    }
-    
-    // Tự động sao chép toàn bộ text vào clipboard trước để đề phòng UIActivity bị đóng
+    [logText writeToFile:filePath atomically:YES encoding:NSUTF8StringEncoding error:nil];
     [UIPasteboard generalPasteboard].string = logText;
     
-    NSURL *fileURL = [NSURL fileURLWithPath:filePath];
-    UIActivityViewController *activityVC = [[UIActivityViewController alloc] initWithActivityItems:@[fileURL] applicationActivities:nil];
+    NSMutableArray *itemsToShare = [NSMutableArray array];
+    [itemsToShare addObject:[NSURL fileURLWithPath:filePath]];
+    
+    NSFileManager *fm = [NSFileManager defaultManager];
+    NSArray *allFiles = [fm contentsOfDirectoryAtPath:docDir error:nil];
+    int binCount = 0;
+    for (NSString *fname in allFiles) {
+        if ([fname hasSuffix:@".bin"] || [fname isEqualToString:@"lobby_traffic.log"]) {
+            NSString *fullPath = [docDir stringByAppendingPathComponent:fname];
+            [itemsToShare addObject:[NSURL fileURLWithPath:fullPath]];
+            if ([fname hasSuffix:@".bin"]) binCount++;
+        }
+    }
+    
+    UIActivityViewController *activityVC = [[UIActivityViewController alloc] initWithActivityItems:itemsToShare applicationActivities:nil];
     
     if (activityVC.popoverPresentationController) {
         activityVC.popoverPresentationController.sourceView = _exportBtn;
@@ -334,7 +335,7 @@ NSString * const kLobbyLoggerNotification = @"kLobbyLoggerNotification";
     }
     
     [self presentViewController:activityVC animated:YES completion:^{
-        [self showToast:@"✓ Đã mở bảng xuất TXT & copy clipboard!"];
+        [self showToast:[NSString stringWithFormat:@"✓ Đã đính kèm 1 TXT + %d file BIN!", binCount]];
     }];
 }
 

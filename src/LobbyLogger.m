@@ -31,12 +31,18 @@ static char g_doc_path[1024] = {0};
 static int  g_candidate_ports[MAX_TRACK_FDS] = {0};
 static char g_candidate_ips[MAX_TRACK_FDS][48] = {{0}};
 
+static void ensure_doc_path(void) {
+    if (!g_doc_path[0]) {
+        NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+        if ([paths count] > 0) {
+            strncpy(g_doc_path, [[paths objectAtIndex:0] UTF8String], sizeof(g_doc_path) - 1);
+        }
+    }
+}
+
 static void init_logger(void) {
-    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
-    if ([paths count] > 0) {
-        NSString *docDir = [paths objectAtIndex:0];
-        strncpy(g_doc_path, [docDir UTF8String], sizeof(g_doc_path) - 1);
-        
+    ensure_doc_path();
+    if (g_doc_path[0]) {
         char log_filepath[1200];
         snprintf(log_filepath, sizeof(log_filepath), "%s/lobby_traffic.log", g_doc_path);
         
@@ -112,12 +118,14 @@ static void dump_traffic_bytes(const char *direction, int sockfd, int port, cons
     }
     
     // Lưu raw nhị phân ra file để phân tích giao thức
+    ensure_doc_path();
     if (g_doc_path[0]) {
         char dump_path[1200];
         snprintf(dump_path, sizeof(dump_path), "%s/traffic_%s_%d.bin", g_doc_path, direction, port);
         FILE *df = fopen(dump_path, "ab");
         if (df) {
             fwrite(buf, 1, len, df);
+            fflush(df);
             fclose(df);
         }
     }
