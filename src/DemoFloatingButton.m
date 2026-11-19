@@ -9,18 +9,18 @@
 
 - (instancetype)initWithFrame:(CGRect)frame {
     if (self = [super initWithFrame:frame]) {
-        self.backgroundColor = [UIColor colorWithRed:0.12 green:0.53 blue:0.90 alpha:0.90];
-        [self setTitle:@"UI" forState:UIControlStateNormal];
-        self.titleLabel.font = [UIFont boldSystemFontOfSize:16];
+        self.backgroundColor = [UIColor colorWithRed:0.08 green:0.62 blue:0.32 alpha:0.92];
+        [self setTitle:@"LOG" forState:UIControlStateNormal];
+        self.titleLabel.font = [UIFont boldSystemFontOfSize:14];
         [self setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
         self.layer.cornerRadius = frame.size.width / 2.0;
         self.layer.masksToBounds = NO;
         self.layer.shadowColor = [UIColor blackColor].CGColor;
-        self.layer.shadowOpacity = 0.4;
-        self.layer.shadowRadius = 4.0;
+        self.layer.shadowOpacity = 0.5;
+        self.layer.shadowRadius = 5.0;
         self.layer.shadowOffset = CGSizeMake(0, 2);
-        self.layer.borderWidth = 1.5;
-        self.layer.borderColor = [UIColor whiteColor].CGColor;
+        self.layer.borderWidth = 2.0;
+        self.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.9].CGColor;
         
         UIPanGestureRecognizer *pan = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handlePan:)];
         [self addGestureRecognizer:pan];
@@ -50,7 +50,7 @@
         CGRect bounds = parent.bounds;
         CGFloat midX = CGRectGetMidX(bounds);
         CGFloat targetX = (self.center.x < midX) ? (self.frame.size.width / 2.0 + 10) : (bounds.size.width - self.frame.size.width / 2.0 - 10);
-        CGFloat targetY = MIN(MAX(self.center.y, 60.0), bounds.size.height - 60.0);
+        CGFloat targetY = MIN(MAX(self.center.y, 40.0), bounds.size.height - 40.0);
         
         [UIView animateWithDuration:0.3 delay:0 options:UIViewAnimationOptionCurveEaseOut animations:^{
             self.center = CGPointMake(targetX, targetY);

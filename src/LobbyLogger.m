@@ -21,6 +21,8 @@
             __attribute__((section ("__DATA,__interpose"))) = { (const void*)(unsigned long)&_replacement, (const void*)(unsigned long)&_replacee };
 #endif
 
+static NSString * const kLobbyLoggerNotification = @"kLobbyLoggerNotification";
+
 static FILE *g_log_file = NULL;
 static pthread_mutex_t g_log_mutex = PTHREAD_MUTEX_INITIALIZER;
 static char g_doc_path[1024] = {0};
@@ -36,7 +38,7 @@ static void init_logger(void) {
         
         g_log_file = fopen(log_filepath, "a+");
         if (g_log_file) {
-            fprintf(g_log_file, "\n\n========================================\n");
+            fprintf(g_log_file, "\n========================================\n");
             fprintf(g_log_file, "[LOBBY_LOGGER] Khoi dong thanh cong luc %s\n", [[NSDate date] description].UTF8String);
             fprintf(g_log_file, "========================================\n");
             fflush(g_log_file);
@@ -44,50 +46,38 @@ static void init_logger(void) {
     }
 }
 
+static void notify_ui_log(NSString *logMsg, BOOL isLobby, NSString *endpoint) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSMutableDictionary *dict = [NSMutableDictionary dictionary];
+        if (logMsg) dict[@"log"] = logMsg;
+        dict[@"is_lobby"] = @(isLobby);
+        if (endpoint) dict[@"endpoint"] = endpoint;
+        
+        [[NSNotificationCenter defaultCenter] postNotificationName:kLobbyLoggerNotification
+                                                            object:nil
+                                                          userInfo:dict];
+    });
+}
+
 static void write_log(const char *fmt, ...) {
+    char buffer[2048] = {0};
+    va_list args;
+    va_start(args, fmt);
+    vsnprintf(buffer, sizeof(buffer), fmt, args);
+    va_end(args);
+
     pthread_mutex_lock(&g_log_mutex);
     if (!g_log_file) {
         init_logger();
     }
     if (g_log_file) {
-        va_list args;
-        va_start(args, fmt);
-        vfprintf(g_log_file, fmt, args);
-        va_end(args);
-        fprintf(g_log_file, "\n");
+        fprintf(g_log_file, "%s\n", buffer);
         fflush(g_log_file);
     }
     pthread_mutex_unlock(&g_log_mutex);
-}
 
-static void show_on_screen_toast(NSString *msg) {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIWindow *window = [UIApplication sharedApplication].keyWindow;
-        if (!window) {
-            NSArray *windows = [UIApplication sharedApplication].windows;
-            if (windows.count > 0) window = windows[0];
-        }
-        if (window) {
-            UILabel *label = [[UILabel alloc] initWithFrame:CGRectMake(20, 50, window.bounds.size.width - 40, 60)];
-            label.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0.85];
-            label.textColor = [UIColor colorWithRed:0.2 green:1.0 blue:0.4 alpha:1.0];
-            label.textAlignment = NSTextAlignmentCenter;
-            label.font = [UIFont boldSystemFontOfSize:13];
-            label.numberOfLines = 2;
-            label.layer.cornerRadius = 8;
-            label.layer.masksToBounds = YES;
-            label.layer.borderWidth = 1.5;
-            label.layer.borderColor = [UIColor greenColor].CGColor;
-            label.text = msg;
-            [window addSubview:label];
-            
-            [UIView animateWithDuration:0.5 delay:7.0 options:0 animations:^{
-                label.alpha = 0;
-            } completion:^(BOOL finished) {
-                [label removeFromSuperview];
-            }];
-        }
-    });
+    NSString *msg = [NSString stringWithUTF8String:buffer];
+    notify_ui_log(msg, NO, nil);
 }
 
 // -----------------------------------------------------------------------------
@@ -102,13 +92,22 @@ static int my_connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen
 
         // Bỏ qua loopback và DNS nội bộ
         if (strcmp(ip_str, "127.0.0.1") != 0) {
-            write_log("[CONNECT] Socket fd=%d -> IP: %s | Port: %d", sockfd, ip_str, port);
-            
-            // Nếu phát hiện kết nối game (port không phải 80/443/53 thường là Lobby hoặc TDir)
-            if (port != 80 && port != 443 && port != 53) {
-                write_log("[>>> LOBBY CANDIDATE <<<] Phat hien ket noi toi: %s:%d", ip_str, port);
-                NSString *toastMsg = [NSString stringWithFormat:@"[Lobby Detected]\nIP: %s | Port: %d", ip_str, port];
-                show_on_screen_toast(toastMsg);
+            BOOL isCandidate = (port != 80 && port != 443 && port != 53);
+            if (isCandidate) {
+                char candidateMsg[512];
+                snprintf(candidateMsg, sizeof(candidateMsg), "[>>> LOBBY CANDIDATE <<<] Phat hien ket noi toi: %s:%d", ip_str, port);
+                
+                pthread_mutex_lock(&g_log_mutex);
+                if (g_log_file) {
+                    fprintf(g_log_file, "%s\n", candidateMsg);
+                    fflush(g_log_file);
+                }
+                pthread_mutex_unlock(&g_log_mutex);
+                
+                NSString *endpoint = [NSString stringWithFormat:@"%s:%d", ip_str, port];
+                notify_ui_log([NSString stringWithUTF8String:candidateMsg], YES, endpoint);
+            } else {
+                write_log("[CONNECT] Socket fd=%d -> IP: %s | Port: %d", sockfd, ip_str, port);
             }
         }
     }
@@ -124,17 +123,16 @@ static ssize_t my_send(int sockfd, const void *buf, size_t len, int flags) {
         const unsigned char *p = (const unsigned char *)buf;
         uint32_t msg_id = (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
         uint32_t seq    = (p[4] << 24) | (p[5] << 16) | (p[6] << 8) | p[7];
-        uint32_t svrseq = (p[8] << 24) | (p[9] << 16) | (p[10] << 8) | p[11];
         uint32_t bodylen= (p[12] << 24) | (p[13] << 16) | (p[14] << 8) | p[15];
 
         // 1802 = 0x070A = CSPKG_CMD_GAMELOGINREQ
         if (msg_id == 1802) {
-            write_log("\n=======================================================");
-            write_log("[SEND PACKET] Bat duoc CSPKG_CMD_GAMELOGINREQ (1802 / 0x070A)!");
-            write_log("  - Tong byte: %zu, BodyLen: %u, Seq: %u", len, bodylen, seq);
+            write_log("=======================================================");
+            write_log("[SEND] Bat duoc CSPKG_CMD_GAMELOGINREQ (1802 / 0x070A)!");
+            write_log("  - Tong bytes: %zu, BodyLen: %u, Seq: %u", len, bodylen, seq);
             
-            char hex_buf[4096] = {0};
-            size_t dump_len = len < 512 ? len : 512;
+            char hex_buf[512] = {0};
+            size_t dump_len = len < 64 ? len : 64;
             for (size_t i = 0; i < dump_len; i++) {
                 snprintf(hex_buf + strlen(hex_buf), sizeof(hex_buf) - strlen(hex_buf), "%02X ", p[i]);
             }
@@ -147,11 +145,10 @@ static ssize_t my_send(int sockfd, const void *buf, size_t len, int flags) {
                 if (df) {
                     fwrite(buf, 1, len, df);
                     fclose(df);
-                    write_log("  - Da luu tron goi tin ra: %s", dump_path);
+                    write_log("  - Da luu tron goi tin ra: Documents/gameloginreq.bin");
                 }
             }
-            write_log("=======================================================\n");
-            show_on_screen_toast(@"[CAPTURED]\nDa dump thanh cong CSPKG_CMD_GAMELOGINREQ!");
+            write_log("=======================================================");
         } else if (msg_id > 1000 && msg_id < 3000) {
             write_log("[SEND GAME PKT] MsgID: %u (0x%04X), Len: %zu", msg_id, msg_id, len);
         }
@@ -169,12 +166,11 @@ static ssize_t my_recv(int sockfd, void *buf, size_t len, int flags) {
         const unsigned char *p = (const unsigned char *)buf;
         uint32_t msg_id = (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
         if (msg_id == 1810) {
-            write_log("[RECV] Bat duoc SCPKG_CMD_GAMELOGINRSP (1810 / 0x0712 - LOGIN THANH CONG)!");
-            show_on_screen_toast(@"[LOGIN SUCCESS]\nNhan duoc phan hoi dang nhap thanh cong!");
+            write_log("[RECV] >>> SCPKG_CMD_GAMELOGINRSP (1810 / 0x0712 - LOGIN THANH CONG!) <<<");
         } else if (msg_id == 1812) {
-            write_log("[RECV] Bat duoc SCPKG_CMD_GAMELOGINLIMIT (1812 / 0x0714 - GIOI HAN/BAO TRI)!");
+            write_log("[RECV] >>> SCPKG_CMD_GAMELOGINLIMIT (1812 / 0x0714 - GIOI HAN/BAO TRI) <<<");
         } else if (msg_id == 1799) {
-            write_log("[RECV] Bat duoc SCPKG_LOGIN_REDIRECT_NTY (1799 / 0x0707 - CHUYEN HUONG SERVER)!");
+            write_log("[RECV] >>> SCPKG_LOGIN_REDIRECT_NTY (1799 / 0x0707 - CHUYEN HUONG SERVER) <<<");
         }
     }
     return ret;
@@ -184,5 +180,5 @@ DYLD_INTERPOSE(my_recv, recv);
 __attribute__((constructor))
 static void entry(void) {
     init_logger();
-    write_log("[LOBBY_LOGGER] Constructor duoc goi. Hook dyld interpose da san sang.");
+    write_log("[LOBBY_LOGGER] Sniffer initialized successfully.");
 }

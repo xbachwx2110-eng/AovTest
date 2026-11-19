@@ -12,7 +12,6 @@ LDFLAGS  = -dynamiclib -framework Foundation -framework UIKit -framework CoreGra
 
 DEMO_SRCS = src/DemoOverlayWindow.m \
             src/DemoFloatingButton.m \
-            src/DemoMockMapView.m \
             src/DemoMenuViewController.m \
             src/DemoOverlayEntry.m \
             src/LobbyLogger.m
