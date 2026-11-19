@@ -30,7 +30,7 @@ on:
 
 jobs:
   build:
-    name: Build DemoOverlayUI.dylib
+    name: Build iOS Dylibs
     runs-on: macos-14
     permissions:
       contents: write
@@ -70,34 +70,33 @@ jobs:
           echo "ARCHS=${ARCH_FLAGS}" >> $GITHUB_ENV
           echo "MIN_IOS=${MIN_IOS}" >> $GITHUB_ENV
 
-      - name: Compile Dylib
+      - name: Compile Dylibs
         run: |
           cd ${{ env.PROJECT_DIR }}
           make clean
-          make ARCHS="${{ env.ARCHS }}" MIN_IOS="${{ env.MIN_IOS }}"
+          make all ARCHS="${{ env.ARCHS }}" MIN_IOS="${{ env.MIN_IOS }}"
+          make package
 
       - name: Verify Binary Info
         run: |
           cd ${{ env.PROJECT_DIR }}
           echo "=== File Info ==="
-          file DemoOverlayUI.dylib
+          file DemoOverlayUI.dylib LobbyLogger.dylib || true
           echo "=== Architecture Info ==="
-          lipo -info DemoOverlayUI.dylib
+          lipo -info DemoOverlayUI.dylib || true
+          lipo -info LobbyLogger.dylib || true
           echo "=== Linked Frameworks ==="
-          otool -L DemoOverlayUI.dylib
+          otool -L DemoOverlayUI.dylib || true
+          otool -L LobbyLogger.dylib || true
 
-      - name: Package Artifacts
-        run: |
-          cd ${{ env.PROJECT_DIR }}
-          zip -r DemoOverlayUI.zip DemoOverlayUI.dylib include/
-
-      - name: Upload Dylib Artifact
+      - name: Upload Dylib Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: DemoOverlayUI-dylib
+          name: iOS-LobbyLogger-Dylibs
           path: |
             ${{ env.PROJECT_DIR }}/DemoOverlayUI.dylib
-            ${{ env.PROJECT_DIR }}/DemoOverlayUI.zip
+            ${{ env.PROJECT_DIR }}/LobbyLogger.dylib
+            ${{ env.PROJECT_DIR }}/Dylibs_Release.zip
           if-no-files-found: error
 
       - name: Create Release
@@ -106,7 +105,8 @@ jobs:
         with:
           files: |
             ${{ env.PROJECT_DIR }}/DemoOverlayUI.dylib
-            ${{ env.PROJECT_DIR }}/DemoOverlayUI.zip
+            ${{ env.PROJECT_DIR }}/LobbyLogger.dylib
+            ${{ env.PROJECT_DIR }}/Dylibs_Release.zip
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
