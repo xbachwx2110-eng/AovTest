@@ -9,11 +9,11 @@ NSString * const kLobbyLoggerNotification = @"kLobbyLoggerNotification";
 @property (nonatomic, strong) UILabel *titleLabel;
 @property (nonatomic, strong) UIView *statusBar;
 @property (nonatomic, strong) UILabel *lobbyStatusLabel;
-@property (nonatomic, strong) UIButton *copyLobbyBtn;
+@property (nonatomic, strong) UIButton *btnCopyLobby;
 @property (nonatomic, strong) UITextView *logTextView;
 @property (nonatomic, strong) UIView *bottomBar;
 @property (nonatomic, strong) UIButton *exportBtn;
-@property (nonatomic, strong) UIButton *copyAllBtn;
+@property (nonatomic, strong) UIButton *btnCopyAll;
 @property (nonatomic, strong) UIButton *clearBtn;
 @property (nonatomic, strong) UIButton *scrollBottomBtn;
 
@@ -95,15 +95,15 @@ NSString * const kLobbyLoggerNotification = @"kLobbyLoggerNotification";
     _lobbyStatusLabel.textColor = [UIColor colorWithRed:1.0 green:0.85 blue:0.3 alpha:1.0];
     [_statusBar addSubview:_lobbyStatusLabel];
     
-    _copyLobbyBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    _copyLobbyBtn.frame = CGRectMake(panelW - 95, 4, 85, 24);
-    [_copyLobbyBtn setTitle:@"📋 Copy IP" forState:UIControlStateNormal];
-    _copyLobbyBtn.titleLabel.font = [UIFont boldSystemFontOfSize:11];
-    _copyLobbyBtn.backgroundColor = [UIColor colorWithRed:0.15 green:0.25 blue:0.35 alpha:1.0];
-    _copyLobbyBtn.layer.cornerRadius = 4.0;
-    [_copyLobbyBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    [_copyLobbyBtn addTarget:self action:@selector(copyLobbyEndpoint) forControlEvents:UIControlEventTouchUpInside];
-    [_statusBar addSubview:_copyLobbyBtn];
+    _btnCopyLobby = [UIButton buttonWithType:UIButtonTypeSystem];
+    _btnCopyLobby.frame = CGRectMake(panelW - 95, 4, 85, 24);
+    [_btnCopyLobby setTitle:@"📋 Copy IP" forState:UIControlStateNormal];
+    _btnCopyLobby.titleLabel.font = [UIFont boldSystemFontOfSize:11];
+    _btnCopyLobby.backgroundColor = [UIColor colorWithRed:0.15 green:0.25 blue:0.35 alpha:1.0];
+    _btnCopyLobby.layer.cornerRadius = 4.0;
+    [_btnCopyLobby setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    [_btnCopyLobby addTarget:self action:@selector(copyLobbyEndpoint) forControlEvents:UIControlEventTouchUpInside];
+    [_statusBar addSubview:_btnCopyLobby];
     
     [_menuContainer addSubview:_statusBar];
     
@@ -143,15 +143,15 @@ NSString * const kLobbyLoggerNotification = @"kLobbyLoggerNotification";
     [_bottomBar addSubview:_exportBtn];
     
     // Button: Sao Chép Toàn Bộ
-    _copyAllBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    _copyAllBtn.frame = CGRectMake(8 + btnW + 5, btnY, btnW, btnH);
-    [_copyAllBtn setTitle:@"📋 Sao Chép" forState:UIControlStateNormal];
-    _copyAllBtn.titleLabel.font = [UIFont boldSystemFontOfSize:11];
-    _copyAllBtn.backgroundColor = [UIColor colorWithRed:0.18 green:0.35 blue:0.55 alpha:1.0];
-    _copyAllBtn.layer.cornerRadius = 5.0;
-    [_copyAllBtn setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    [_copyAllBtn addTarget:self action:@selector(copyAllLogs) forControlEvents:UIControlEventTouchUpInside];
-    [_bottomBar addSubview:_copyAllBtn];
+    _btnCopyAll = [UIButton buttonWithType:UIButtonTypeSystem];
+    _btnCopyAll.frame = CGRectMake(8 + btnW + 5, btnY, btnW, btnH);
+    [_btnCopyAll setTitle:@"📋 Sao Chép" forState:UIControlStateNormal];
+    _btnCopyAll.titleLabel.font = [UIFont boldSystemFontOfSize:11];
+    _btnCopyAll.backgroundColor = [UIColor colorWithRed:0.18 green:0.35 blue:0.55 alpha:1.0];
+    _btnCopyAll.layer.cornerRadius = 5.0;
+    [_btnCopyAll setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    [_btnCopyAll addTarget:self action:@selector(copyAllLogs) forControlEvents:UIControlEventTouchUpInside];
+    [_bottomBar addSubview:_btnCopyAll];
     
     // Button: Xóa Log
     _clearBtn = [UIButton buttonWithType:UIButtonTypeSystem];
