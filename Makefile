@@ -8,7 +8,7 @@ MIN_IOS ?= 12.0
 SDK_PATH = $(shell xcrun --sdk iphoneos --show-sdk-path)
 
 CFLAGS   = $(ARCHS) -isysroot $(SDK_PATH) -miphoneos-version-min=$(MIN_IOS) -fobjc-arc -Iinclude -Isrc -O2
-LDFLAGS  = -dynamiclib -framework Foundation -framework UIKit -framework CoreGraphics -framework QuartzCore
+LDFLAGS  = -dynamiclib -undefined dynamic_lookup -framework Foundation -framework UIKit -framework CoreGraphics -framework QuartzCore
 
 DEMO_SRCS = src/DemoOverlayWindow.m \
             src/DemoFloatingButton.m \
