@@ -240,8 +240,181 @@ static int my_close(int fd) {
 }
 DYLD_INTERPOSE(my_close, close);
 
+// -----------------------------------------------------------------------------
+// 5. GCloud G6 PlainText TDR Dump (Trước khi mã hóa / Sau khi giải mã sạch)
+// -----------------------------------------------------------------------------
+typedef int (*gcloud_writeData_t)(long long objId, const void *data, int len, int serviceId, int msgType, int msgFlag);
+typedef int (*gcloud_readData_t)(long long objId, void *buf, int *bufSize, int *serviceId, int *msgType, int *msgFlag);
+
+static gcloud_writeData_t orig_gcloud_writeData = NULL;
+static gcloud_readData_t  orig_gcloud_readData  = NULL;
+
+extern int gcloud_g6connector_writeData(long long objId, const void *data, int len, int serviceId, int msgType, int msgFlag) __attribute__((weak_import));
+extern int gcloud_g6connector_readData(long long objId, void *buf, int *bufSize, int *serviceId, int *msgType, int *msgFlag) __attribute__((weak_import));
+
+static void dump_plain_tdr(const char *direction, const void *buf, int len, int serviceId, int msgType) {
+    if (!buf || len <= 0) return;
+    ensure_doc_path();
+    if (!g_doc_path[0]) return;
+    
+    char bin_path[1200];
+    snprintf(bin_path, sizeof(bin_path), "%s/tdr_%s_plain.bin", g_doc_path, direction);
+    FILE *bf = fopen(bin_path, "ab");
+    if (bf) {
+        fwrite(buf, 1, len, bf);
+        fflush(bf);
+        fclose(bf);
+    }
+    
+    char log_path[1200];
+    snprintf(log_path, sizeof(log_path), "%s/tdr_plain.log", g_doc_path);
+    FILE *lf = fopen(log_path, "a+");
+    if (lf) {
+        fprintf(lf, "[TDR_%s_PLAIN] Len=%d Svc=%d Type=%d | Hex: ", direction, len, serviceId, msgType);
+        const unsigned char *p = (const unsigned char *)buf;
+        int max_p = len > 32 ? 32 : len;
+        for (int i = 0; i < max_p; i++) {
+            fprintf(lf, "%02X ", p[i]);
+        }
+        fprintf(lf, "\n");
+        fflush(lf);
+        fclose(lf);
+    }
+    
+    NSString *uiMsg = [NSString stringWithFormat:@"🔓 [TDR %s PLAIN] Len=%d Svc=%d", direction, len, serviceId];
+    notify_ui_log(uiMsg, NO, nil);
+}
+
+static int my_gcloud_g6connector_writeData(long long objId, const void *data, int len, int serviceId, int msgType, int msgFlag) {
+    if (data && len > 0) {
+        dump_plain_tdr("SEND", data, len, serviceId, msgType);
+    }
+    if (orig_gcloud_writeData) {
+        return orig_gcloud_writeData(objId, data, len, serviceId, msgType, msgFlag);
+    }
+    if (gcloud_g6connector_writeData != NULL) {
+        return gcloud_g6connector_writeData(objId, data, len, serviceId, msgType, msgFlag);
+    }
+    return -1;
+}
+DYLD_INTERPOSE(my_gcloud_g6connector_writeData, gcloud_g6connector_writeData);
+
+static int my_gcloud_g6connector_readData(long long objId, void *buf, int *bufSize, int *serviceId, int *msgType, int *msgFlag) {
+    int ret = -1;
+    if (orig_gcloud_readData) {
+        ret = orig_gcloud_readData(objId, buf, bufSize, serviceId, msgType, msgFlag);
+    } else if (gcloud_g6connector_readData != NULL) {
+        ret = gcloud_g6connector_readData(objId, buf, bufSize, serviceId, msgType, msgFlag);
+    }
+    if (ret == 0 && buf && bufSize && *bufSize > 0) {
+        int svc = serviceId ? *serviceId : 0;
+        int mtype = msgType ? *msgType : 0;
+        dump_plain_tdr("RECV", buf, *bufSize, svc, mtype);
+    }
+    return ret;
+}
+DYLD_INTERPOSE(my_gcloud_g6connector_readData, gcloud_g6connector_readData);
+
+static void* my_dlsym(void *handle, const char *symbol) {
+    if (symbol) {
+        if (strcmp(symbol, "gcloud_g6connector_writeData") == 0) {
+            void *real_fn = dlsym(handle, symbol);
+            if (real_fn && !orig_gcloud_writeData) orig_gcloud_writeData = (gcloud_writeData_t)real_fn;
+            return (void*)my_gcloud_g6connector_writeData;
+        }
+        if (strcmp(symbol, "gcloud_g6connector_readData") == 0) {
+            void *real_fn = dlsym(handle, symbol);
+            if (real_fn && !orig_gcloud_readData) orig_gcloud_readData = (gcloud_readData_t)real_fn;
+            return (void*)my_gcloud_g6connector_readData;
+        }
+    }
+    return dlsym(handle, symbol);
+}
+DYLD_INTERPOSE(my_dlsym, dlsym);
+
+// -----------------------------------------------------------------------------
+// 6. Garena MSDK Auth Interceptor (Bắt token, openid, login_key qua NSURLSession)
+// -----------------------------------------------------------------------------
+#import <objc/runtime.h>
+
+@interface AovAuthHook : NSObject
+@end
+
+@implementation AovAuthHook
+
++ (void)load {
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        Class cls = [NSURLSession class];
+        SEL origSel = @selector(dataTaskWithRequest:completionHandler:);
+        SEL swizSel = @selector(aov_dataTaskWithRequest:completionHandler:);
+        
+        Method origMethod = class_getInstanceMethod(cls, origSel);
+        Method swizMethod = class_getInstanceMethod(cls, swizSel);
+        if (origMethod && swizMethod) {
+            method_exchangeImplementations(origMethod, swizMethod);
+        }
+    });
+}
+
+- (NSURLSessionDataTask *)aov_dataTaskWithRequest:(NSURLRequest *)request completionHandler:(void (^)(NSData *data, NSURLResponse *response, NSError *error))completionHandler {
+    NSURL *url = request.URL;
+    NSString *urlStr = url.absoluteString ?: @"";
+    BOOL isAuth = [urlStr containsString:@"itop.kg.garena.vn"] || 
+                  [urlStr containsString:@"auth"] || 
+                  [urlStr containsString:@"login"] || 
+                  [urlStr containsString:@"intlsdk"] ||
+                  [urlStr containsString:@"openid"];
+    
+    if (isAuth && request.HTTPBody.length > 0) {
+        ensure_doc_path();
+        if (g_doc_path[0]) {
+            char req_path[1200];
+            snprintf(req_path, sizeof(req_path), "%s/msdk_req.json", g_doc_path);
+            FILE *f = fopen(req_path, "a+");
+            if (f) {
+                fprintf(f, "\n=== REQ: %s ===\n", urlStr.UTF8String);
+                fwrite(request.HTTPBody.bytes, 1, request.HTTPBody.length, f);
+                fprintf(f, "\n");
+                fclose(f);
+            }
+        }
+    }
+    
+    void (^swiz_completion)(NSData *, NSURLResponse *, NSError *) = ^(NSData *data, NSURLResponse *response, NSError *error) {
+        if (isAuth && data.length > 0) {
+            ensure_doc_path();
+            if (g_doc_path[0]) {
+                char rsp_path[1200];
+                snprintf(rsp_path, sizeof(rsp_path), "%s/msdk_auth.json", g_doc_path);
+                FILE *f = fopen(rsp_path, "a+");
+                if (f) {
+                    fprintf(f, "\n=== RSP: %s (Status: %ld) ===\n", urlStr.UTF8String, (long)((NSHTTPURLResponse *)response).statusCode);
+                    fwrite(data.bytes, 1, data.length, f);
+                    fprintf(f, "\n");
+                    fclose(f);
+                }
+            }
+            notify_ui_log([NSString stringWithFormat:@"🔑 [AUTH JSON] %@", urlStr], NO, nil);
+        }
+        if (completionHandler) {
+            completionHandler(data, response, error);
+        }
+    };
+    
+    return [self aov_dataTaskWithRequest:request completionHandler:swiz_completion];
+}
+@end
+
 __attribute__((constructor))
 static void entry(void) {
     init_logger();
-    write_log("[LOBBY_LOGGER] Sniffer v2.0 initialized (All Socket IO hooked).");
+    
+    // Resolve dynamic pointers if available
+    void *w = dlsym(RTLD_DEFAULT, "gcloud_g6connector_writeData");
+    if (w) orig_gcloud_writeData = (gcloud_writeData_t)w;
+    void *r = dlsym(RTLD_DEFAULT, "gcloud_g6connector_readData");
+    if (r) orig_gcloud_readData = (gcloud_readData_t)r;
+    
+    write_log("[LOBBY_LOGGER] Sniffer v3.0 (Socket IO + PlainText TDR + MSDK Auth Interceptor) activated.");
 }

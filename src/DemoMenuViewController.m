@@ -319,7 +319,7 @@ NSString * const kLobbyLoggerNotification = @"kLobbyLoggerNotification";
     NSArray *allFiles = [fm contentsOfDirectoryAtPath:docDir error:nil];
     int binCount = 0;
     for (NSString *fname in allFiles) {
-        if ([fname hasSuffix:@".bin"] || [fname isEqualToString:@"lobby_traffic.log"]) {
+        if ([fname hasSuffix:@".bin"] || [fname hasSuffix:@".json"] || [fname hasSuffix:@".log"] || [fname hasSuffix:@".txt"]) {
             NSString *fullPath = [docDir stringByAppendingPathComponent:fname];
             [itemsToShare addObject:[NSURL fileURLWithPath:fullPath]];
             if ([fname hasSuffix:@".bin"]) binCount++;
