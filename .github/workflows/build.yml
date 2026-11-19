@@ -31,7 +31,7 @@ on:
 jobs:
   build:
     name: Build iOS Dylibs
-    runs-on: macos-14
+    runs-on: macos-latest
     permissions:
       contents: write
 
