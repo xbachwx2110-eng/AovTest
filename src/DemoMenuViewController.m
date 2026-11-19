@@ -4,7 +4,7 @@ NSString * const kLobbyLoggerNotification = @"kLobbyLoggerNotification";
 
 @interface DemoMenuViewController ()
 
-@property (nonatomic, strong) UIView *menuContainer;
+@property (nonatomic, strong, readwrite) UIView *menuContainer;
 @property (nonatomic, strong) UIView *headerView;
 @property (nonatomic, strong) UILabel *titleLabel;
 @property (nonatomic, strong) UIView *statusBar;
@@ -20,6 +20,7 @@ NSString * const kLobbyLoggerNotification = @"kLobbyLoggerNotification";
 @property (nonatomic, copy) NSString *latestLobbyEndpoint;
 @property (nonatomic, assign) CGPoint panelStartCenter;
 @property (nonatomic, strong) UILabel *toastLabel;
+@property (nonatomic, strong) UIDocumentInteractionController *docInteractionController;
 
 @end
 
@@ -46,17 +47,65 @@ NSString * const kLobbyLoggerNotification = @"kLobbyLoggerNotification";
     [[NSNotificationCenter defaultCenter] removeObserver:self];
 }
 
+- (BOOL)shouldAutorotate {
+    return YES;
+}
+
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+    return UIInterfaceOrientationMaskAll;
+}
+
+- (void)viewWillLayoutSubviews {
+    [super viewWillLayoutSubviews];
+    [self updateLayoutFrames];
+}
+
+- (void)updateLayoutFrames {
+    CGRect screenBounds = self.view.bounds;
+    if (CGRectIsEmpty(screenBounds)) {
+        screenBounds = [UIScreen mainScreen].bounds;
+    }
+    
+    CGFloat screenW = screenBounds.size.width;
+    CGFloat screenH = screenBounds.size.height;
+    
+    CGFloat panelW = MIN(screenW - 30.0, 520.0);
+    CGFloat panelH = MIN(screenH - 24.0, 310.0);
+    
+    // Giữ nguyên vị trí nếu người dùng đã tự kéo thả, nếu chưa thì căn giữa
+    if (_menuContainer.frame.origin.x == 0 && _menuContainer.frame.origin.y == 0) {
+        _menuContainer.frame = CGRectMake((screenW - panelW) / 2.0, (screenH - panelH) / 2.0, panelW, panelH);
+    } else {
+        CGRect cur = _menuContainer.frame;
+        cur.size.width = panelW;
+        cur.size.height = panelH;
+        _menuContainer.frame = cur;
+    }
+    
+    _headerView.frame = CGRectMake(0, 0, panelW, 36);
+    _titleLabel.frame = CGRectMake(12, 6, panelW - 60, 24);
+    
+    _statusBar.frame = CGRectMake(0, 36, panelW, 32);
+    _lobbyStatusLabel.frame = CGRectMake(12, 4, panelW - 115, 24);
+    _btnCopyLobby.frame = CGRectMake(panelW - 100, 4, 90, 24);
+    
+    CGFloat logH = panelH - 36 - 32 - 42;
+    _logTextView.frame = CGRectMake(8, 72, panelW - 16, logH);
+    
+    _bottomBar.frame = CGRectMake(0, panelH - 42, panelW, 42);
+    
+    CGFloat btnW = (panelW - 32) / 4.0;
+    CGFloat btnH = 30.0;
+    CGFloat btnY = 6.0;
+    
+    _exportBtn.frame = CGRectMake(8, btnY, btnW, btnH);
+    _btnCopyAll.frame = CGRectMake(8 + btnW + 5, btnY, btnW, btnH);
+    _clearBtn.frame = CGRectMake(8 + (btnW + 5) * 2, btnY, btnW, btnH);
+    _scrollBottomBtn.frame = CGRectMake(8 + (btnW + 5) * 3, btnY, btnW, btnH);
+}
+
 - (void)setupMenuContainer {
-    CGRect screenBounds = [UIScreen mainScreen].bounds;
-    CGFloat screenW = MAX(screenBounds.size.width, screenBounds.size.height);
-    CGFloat screenH = MIN(screenBounds.size.width, screenBounds.size.height);
-    
-    CGFloat panelW = MIN(screenW - 40.0, 520.0);
-    CGFloat panelH = MIN(screenH - 30.0, 310.0);
-    CGFloat panelX = (screenW - panelW) / 2.0;
-    CGFloat panelY = (screenH - panelH) / 2.0;
-    
-    _menuContainer = [[UIView alloc] initWithFrame:CGRectMake(panelX, panelY, panelW, panelH)];
+    _menuContainer = [[UIView alloc] initWithFrame:CGRectZero];
     _menuContainer.backgroundColor = [UIColor colorWithRed:0.07 green:0.09 blue:0.13 alpha:0.96];
     _menuContainer.layer.cornerRadius = 10.0;
     _menuContainer.layer.masksToBounds = YES;
@@ -64,20 +113,21 @@ NSString * const kLobbyLoggerNotification = @"kLobbyLoggerNotification";
     _menuContainer.layer.borderColor = [UIColor colorWithRed:0.2 green:0.8 blue:0.4 alpha:0.8].CGColor;
     
     // 1. Header (Có thể kéo di chuyển)
-    _headerView = [[UIView alloc] initWithFrame:CGRectMake(0, 0, panelW, 36)];
+    _headerView = [[UIView alloc] initWithFrame:CGRectZero];
     _headerView.backgroundColor = [UIColor colorWithRed:0.11 green:0.15 blue:0.21 alpha:1.0];
     
-    _titleLabel = [[UILabel alloc] initWithFrame:CGRectMake(12, 6, panelW - 70, 24)];
+    _titleLabel = [[UILabel alloc] initWithFrame:CGRectZero];
     _titleLabel.text = @"📡 LOBBY SNIFFER & NETWORK LOG";
     _titleLabel.font = [UIFont boldSystemFontOfSize:13];
     _titleLabel.textColor = [UIColor colorWithRed:0.2 green:1.0 blue:0.5 alpha:1.0];
     [_headerView addSubview:_titleLabel];
     
     UIButton *closeBtn = [UIButton buttonWithType:UIButtonTypeCustom];
-    closeBtn.frame = CGRectMake(panelW - 36, 4, 28, 28);
+    closeBtn.frame = CGRectMake(0, 0, 36, 36);
+    closeBtn.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
     [closeBtn setTitle:@"✕" forState:UIControlStateNormal];
-    [closeBtn setTitleColor:[UIColor colorWithWhite:0.85 alpha:1.0] forState:UIControlStateNormal];
-    closeBtn.titleLabel.font = [UIFont systemFontOfSize:15 weight:UIFontWeightBold];
+    [closeBtn setTitleColor:[UIColor colorWithWhite:0.9 alpha:1.0] forState:UIControlStateNormal];
+    closeBtn.titleLabel.font = [UIFont systemFontOfSize:16 weight:UIFontWeightBold];
     [closeBtn addTarget:self action:@selector(hideMenu) forControlEvents:UIControlEventTouchUpInside];
     [_headerView addSubview:closeBtn];
     
@@ -86,17 +136,16 @@ NSString * const kLobbyLoggerNotification = @"kLobbyLoggerNotification";
     [_menuContainer addSubview:_headerView];
     
     // 2. Status Bar: Hiển thị IP & Port Lobby Server bắt được
-    _statusBar = [[UIView alloc] initWithFrame:CGRectMake(0, 36, panelW, 32)];
+    _statusBar = [[UIView alloc] initWithFrame:CGRectZero];
     _statusBar.backgroundColor = [UIColor colorWithRed:0.09 green:0.12 blue:0.18 alpha:1.0];
     
-    _lobbyStatusLabel = [[UILabel alloc] initWithFrame:CGRectMake(12, 4, panelW - 110, 24)];
+    _lobbyStatusLabel = [[UILabel alloc] initWithFrame:CGRectZero];
     _lobbyStatusLabel.text = @"⏳ Đang chờ kết nối Lobby Server...";
     _lobbyStatusLabel.font = [UIFont boldSystemFontOfSize:12];
     _lobbyStatusLabel.textColor = [UIColor colorWithRed:1.0 green:0.85 blue:0.3 alpha:1.0];
     [_statusBar addSubview:_lobbyStatusLabel];
     
     _btnCopyLobby = [UIButton buttonWithType:UIButtonTypeSystem];
-    _btnCopyLobby.frame = CGRectMake(panelW - 95, 4, 85, 24);
     [_btnCopyLobby setTitle:@"📋 Copy IP" forState:UIControlStateNormal];
     _btnCopyLobby.titleLabel.font = [UIFont boldSystemFontOfSize:11];
     _btnCopyLobby.backgroundColor = [UIColor colorWithRed:0.15 green:0.25 blue:0.35 alpha:1.0];
@@ -108,8 +157,7 @@ NSString * const kLobbyLoggerNotification = @"kLobbyLoggerNotification";
     [_menuContainer addSubview:_statusBar];
     
     // 3. TextView hiển thị Log console
-    CGFloat logH = panelH - 36 - 32 - 40;
-    _logTextView = [[UITextView alloc] initWithFrame:CGRectMake(8, 70, panelW - 16, logH)];
+    _logTextView = [[UITextView alloc] initWithFrame:CGRectZero];
     _logTextView.backgroundColor = [UIColor colorWithRed:0.04 green:0.05 blue:0.07 alpha:1.0];
     _logTextView.textColor = [UIColor colorWithRed:0.85 green:0.92 blue:0.95 alpha:1.0];
     if (@available(iOS 13.0, *)) {
@@ -124,16 +172,11 @@ NSString * const kLobbyLoggerNotification = @"kLobbyLoggerNotification";
     [_menuContainer addSubview:_logTextView];
     
     // 4. Bottom Action Bar (Các nút chức năng)
-    _bottomBar = [[UIView alloc] initWithFrame:CGRectMake(0, panelH - 40, panelW, 40)];
+    _bottomBar = [[UIView alloc] initWithFrame:CGRectZero];
     _bottomBar.backgroundColor = [UIColor colorWithRed:0.10 green:0.13 blue:0.18 alpha:1.0];
-    
-    CGFloat btnW = (panelW - 32) / 4.0;
-    CGFloat btnH = 28.0;
-    CGFloat btnY = 6.0;
     
     // Button: Xuất TXT
     _exportBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    _exportBtn.frame = CGRectMake(8, btnY, btnW, btnH);
     [_exportBtn setTitle:@"📤 Xuất TXT" forState:UIControlStateNormal];
     _exportBtn.titleLabel.font = [UIFont boldSystemFontOfSize:11];
     _exportBtn.backgroundColor = [UIColor colorWithRed:0.12 green:0.48 blue:0.28 alpha:1.0];
@@ -144,7 +187,6 @@ NSString * const kLobbyLoggerNotification = @"kLobbyLoggerNotification";
     
     // Button: Sao Chép Toàn Bộ
     _btnCopyAll = [UIButton buttonWithType:UIButtonTypeSystem];
-    _btnCopyAll.frame = CGRectMake(8 + btnW + 5, btnY, btnW, btnH);
     [_btnCopyAll setTitle:@"📋 Sao Chép" forState:UIControlStateNormal];
     _btnCopyAll.titleLabel.font = [UIFont boldSystemFontOfSize:11];
     _btnCopyAll.backgroundColor = [UIColor colorWithRed:0.18 green:0.35 blue:0.55 alpha:1.0];
@@ -155,7 +197,6 @@ NSString * const kLobbyLoggerNotification = @"kLobbyLoggerNotification";
     
     // Button: Xóa Log
     _clearBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    _clearBtn.frame = CGRectMake(8 + (btnW + 5) * 2, btnY, btnW, btnH);
     [_clearBtn setTitle:@"🧹 Xóa Log" forState:UIControlStateNormal];
     _clearBtn.titleLabel.font = [UIFont boldSystemFontOfSize:11];
     _clearBtn.backgroundColor = [UIColor colorWithRed:0.45 green:0.20 blue:0.20 alpha:1.0];
@@ -166,7 +207,6 @@ NSString * const kLobbyLoggerNotification = @"kLobbyLoggerNotification";
     
     // Button: Cuộn Xuống Cuối
     _scrollBottomBtn = [UIButton buttonWithType:UIButtonTypeSystem];
-    _scrollBottomBtn.frame = CGRectMake(8 + (btnW + 5) * 3, btnY, btnW, btnH);
     [_scrollBottomBtn setTitle:@"⬇ Cuộn Cuối" forState:UIControlStateNormal];
     _scrollBottomBtn.titleLabel.font = [UIFont boldSystemFontOfSize:11];
     _scrollBottomBtn.backgroundColor = [UIColor colorWithRed:0.25 green:0.28 blue:0.35 alpha:1.0];
@@ -177,6 +217,8 @@ NSString * const kLobbyLoggerNotification = @"kLobbyLoggerNotification";
     
     [_menuContainer addSubview:_bottomBar];
     [self.view addSubview:_menuContainer];
+    
+    [self updateLayoutFrames];
 }
 
 #pragma mark - Logic Xử Lý & Thao Tác
@@ -255,8 +297,15 @@ NSString * const kLobbyLoggerNotification = @"kLobbyLoggerNotification";
 - (void)exportLogAsTxt {
     NSString *logText = _logTextView.text;
     if (logText.length == 0) {
-        [self showToast:@"Log trống, chưa có dữ liệu để xuất!"];
-        return;
+        // Nạp log từ file nếu textView rỗng
+        NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+        if (paths.count > 0) {
+            NSString *logPath = [paths[0] stringByAppendingPathComponent:@"lobby_traffic.log"];
+            logText = [NSString stringWithContentsOfFile:logPath encoding:NSUTF8StringEncoding error:nil];
+        }
+    }
+    if (logText.length == 0) {
+        logText = [NSString stringWithFormat:@"[LOBBY_LOGGER] Log khoi tao luc %@. Chua co ket noi moi.", [NSDate date]];
     }
     
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
@@ -268,25 +317,31 @@ NSString * const kLobbyLoggerNotification = @"kLobbyLoggerNotification";
     [logText writeToFile:filePath atomically:YES encoding:NSUTF8StringEncoding error:&err];
     
     if (err) {
-        [self showToast:[NSString stringWithFormat:@"Lỗi lưu file: %@", err.localizedDescription]];
+        [self showToast:[NSString stringWithFormat:@"Lỗi lưu: %@", err.localizedDescription]];
         return;
     }
+    
+    // Tự động sao chép toàn bộ text vào clipboard trước để đề phòng UIActivity bị đóng
+    [UIPasteboard generalPasteboard].string = logText;
     
     NSURL *fileURL = [NSURL fileURLWithPath:filePath];
     UIActivityViewController *activityVC = [[UIActivityViewController alloc] initWithActivityItems:@[fileURL] applicationActivities:nil];
     
-    if (UI_USER_INTERFACE_IDIOM() == UIUserInterfaceIdiomPad) {
+    if (activityVC.popoverPresentationController) {
         activityVC.popoverPresentationController.sourceView = _exportBtn;
         activityVC.popoverPresentationController.sourceRect = _exportBtn.bounds;
+        activityVC.popoverPresentationController.permittedArrowDirections = UIPopoverArrowDirectionAny;
     }
     
-    [self presentViewController:activityVC animated:YES completion:nil];
+    [self presentViewController:activityVC animated:YES completion:^{
+        [self showToast:@"✓ Đã mở bảng xuất TXT & copy clipboard!"];
+    }];
 }
 
 - (void)showToast:(NSString *)msg {
     if (!_toastLabel) {
-        _toastLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 20, 260, 34)];
-        _toastLabel.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0.9];
+        _toastLabel = [[UILabel alloc] initWithFrame:CGRectMake(20, 20, 280, 36)];
+        _toastLabel.backgroundColor = [UIColor colorWithRed:0 green:0 blue:0 alpha:0.92];
         _toastLabel.textColor = [UIColor colorWithRed:0.2 green:1.0 blue:0.5 alpha:1.0];
         _toastLabel.textAlignment = NSTextAlignmentCenter;
         _toastLabel.font = [UIFont boldSystemFontOfSize:12];
@@ -320,6 +375,7 @@ NSString * const kLobbyLoggerNotification = @"kLobbyLoggerNotification";
 }
 
 - (void)showMenu {
+    [self updateLayoutFrames];
     self.menuContainer.hidden = NO;
     self.menuContainer.alpha = 0.0;
     [UIView animateWithDuration:0.25 animations:^{

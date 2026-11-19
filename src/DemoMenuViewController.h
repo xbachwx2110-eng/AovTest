@@ -2,7 +2,9 @@
 
 extern NSString * const kLobbyLoggerNotification;
 
-@interface DemoMenuViewController : UIViewController
+@interface DemoMenuViewController : UIViewController <UIDocumentInteractionControllerDelegate>
+
+@property (nonatomic, strong, readonly) UIView *menuContainer;
 
 - (void)toggleMenuVisibility;
 - (void)showMenu;
