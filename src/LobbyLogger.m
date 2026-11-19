@@ -27,6 +27,10 @@ static FILE *g_log_file = NULL;
 static pthread_mutex_t g_log_mutex = PTHREAD_MUTEX_INITIALIZER;
 static char g_doc_path[1024] = {0};
 
+#define MAX_TRACK_FDS 4096
+static int  g_candidate_ports[MAX_TRACK_FDS] = {0};
+static char g_candidate_ips[MAX_TRACK_FDS][48] = {{0}};
+
 static void init_logger(void) {
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
     if ([paths count] > 0) {
@@ -80,6 +84,45 @@ static void write_log(const char *fmt, ...) {
     notify_ui_log(msg, NO, nil);
 }
 
+static void dump_traffic_bytes(const char *direction, int sockfd, int port, const char *ip, const void *buf, size_t len) {
+    if (!buf || len == 0) return;
+    
+    char hex_preview[256] = {0};
+    const unsigned char *p = (const unsigned char *)buf;
+    size_t preview_len = len < 32 ? len : 32;
+    for (size_t i = 0; i < preview_len; i++) {
+        snprintf(hex_preview + strlen(hex_preview), sizeof(hex_preview) - strlen(hex_preview), "%02X ", p[i]);
+    }
+    
+    // Kiểm tra có Opcode đăng nhập 1802 (0x070A) hoặc 1810 (0x0712) không
+    BOOL isLoginReq = NO;
+    BOOL isLoginRsp = NO;
+    for (size_t i = 0; i + 3 < len; i++) {
+        uint32_t val = (p[i] << 24) | (p[i+1] << 16) | (p[i+2] << 8) | p[i+3];
+        if (val == 1802) isLoginReq = YES;
+        if (val == 1810) isLoginRsp = YES;
+    }
+    
+    if (isLoginReq) {
+        write_log("[>>> LOBBY_LOGIN_REQ (1802) <<<] %s fd=%d (%s:%d) Len=%zu | Hex: %s", direction, sockfd, ip, port, len, hex_preview);
+    } else if (isLoginRsp) {
+        write_log("[>>> LOBBY_LOGIN_RSP (1810) <<<] %s fd=%d (%s:%d) Len=%zu | Hex: %s", direction, sockfd, ip, port, len, hex_preview);
+    } else {
+        write_log("[%s -> %s:%d] fd=%d Len=%zu | Hex: %s", direction, ip, port, sockfd, len, hex_preview);
+    }
+    
+    // Lưu raw nhị phân ra file để phân tích giao thức
+    if (g_doc_path[0]) {
+        char dump_path[1200];
+        snprintf(dump_path, sizeof(dump_path), "%s/traffic_%s_%d.bin", g_doc_path, direction, port);
+        FILE *df = fopen(dump_path, "ab");
+        if (df) {
+            fwrite(buf, 1, len, df);
+            fclose(df);
+        }
+    }
+}
+
 // -----------------------------------------------------------------------------
 // 1. Hook BSD connect() để tóm mọi IP & Port máy chủ kết nối tới
 // -----------------------------------------------------------------------------
@@ -94,6 +137,11 @@ static int my_connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen
         if (strcmp(ip_str, "127.0.0.1") != 0) {
             BOOL isCandidate = (port != 80 && port != 443 && port != 53);
             if (isCandidate) {
+                if (sockfd >= 0 && sockfd < MAX_TRACK_FDS) {
+                    g_candidate_ports[sockfd] = port;
+                    strncpy(g_candidate_ips[sockfd], ip_str, sizeof(g_candidate_ips[sockfd]) - 1);
+                }
+                
                 char candidateMsg[512];
                 snprintf(candidateMsg, sizeof(candidateMsg), "[>>> LOBBY CANDIDATE <<<] Phat hien ket noi toi: %s:%d", ip_str, port);
                 
@@ -116,69 +164,76 @@ static int my_connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen
 DYLD_INTERPOSE(my_connect, connect);
 
 // -----------------------------------------------------------------------------
-// 2. Hook send() để tóm gói tin CSPKG_CMD_GAMELOGINREQ (Opcode 1802 / 0x070A)
+// 2. Hook send() & sendto() & write()
 // -----------------------------------------------------------------------------
 static ssize_t my_send(int sockfd, const void *buf, size_t len, int flags) {
-    if (buf && len >= 16) {
-        const unsigned char *p = (const unsigned char *)buf;
-        uint32_t msg_id = (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
-        uint32_t seq    = (p[4] << 24) | (p[5] << 16) | (p[6] << 8) | p[7];
-        uint32_t bodylen= (p[12] << 24) | (p[13] << 16) | (p[14] << 8) | p[15];
-
-        // 1802 = 0x070A = CSPKG_CMD_GAMELOGINREQ
-        if (msg_id == 1802) {
-            write_log("=======================================================");
-            write_log("[SEND] Bat duoc CSPKG_CMD_GAMELOGINREQ (1802 / 0x070A)!");
-            write_log("  - Tong bytes: %zu, BodyLen: %u, Seq: %u", len, bodylen, seq);
-            
-            char hex_buf[512] = {0};
-            size_t dump_len = len < 64 ? len : 64;
-            for (size_t i = 0; i < dump_len; i++) {
-                snprintf(hex_buf + strlen(hex_buf), sizeof(hex_buf) - strlen(hex_buf), "%02X ", p[i]);
-            }
-            write_log("  - Raw Hex (dau %zu bytes): %s", dump_len, hex_buf);
-
-            if (g_doc_path[0]) {
-                char dump_path[1200];
-                snprintf(dump_path, sizeof(dump_path), "%s/gameloginreq.bin", g_doc_path);
-                FILE *df = fopen(dump_path, "wb");
-                if (df) {
-                    fwrite(buf, 1, len, df);
-                    fclose(df);
-                    write_log("  - Da luu tron goi tin ra: Documents/gameloginreq.bin");
-                }
-            }
-            write_log("=======================================================");
-        } else if (msg_id > 1000 && msg_id < 3000) {
-            write_log("[SEND GAME PKT] MsgID: %u (0x%04X), Len: %zu", msg_id, msg_id, len);
-        }
+    if (sockfd >= 0 && sockfd < MAX_TRACK_FDS && g_candidate_ports[sockfd] > 0) {
+        dump_traffic_bytes("SEND", sockfd, g_candidate_ports[sockfd], g_candidate_ips[sockfd], buf, len);
     }
     return send(sockfd, buf, len, flags);
 }
 DYLD_INTERPOSE(my_send, send);
 
+static ssize_t my_sendto(int sockfd, const void *buf, size_t len, int flags, const struct sockaddr *dest_addr, socklen_t addrlen) {
+    if (sockfd >= 0 && sockfd < MAX_TRACK_FDS && g_candidate_ports[sockfd] > 0) {
+        dump_traffic_bytes("SENDTO", sockfd, g_candidate_ports[sockfd], g_candidate_ips[sockfd], buf, len);
+    }
+    return sendto(sockfd, buf, len, flags, dest_addr, addrlen);
+}
+DYLD_INTERPOSE(my_sendto, sendto);
+
+static ssize_t my_write(int fd, const void *buf, size_t count) {
+    if (fd >= 0 && fd < MAX_TRACK_FDS && g_candidate_ports[fd] > 0) {
+        dump_traffic_bytes("WRITE", fd, g_candidate_ports[fd], g_candidate_ips[fd], buf, count);
+    }
+    return write(fd, buf, count);
+}
+DYLD_INTERPOSE(my_write, write);
+
 // -----------------------------------------------------------------------------
-// 3. Hook recv() để tóm phản hồi từ Lobby (SCPKG_CMD_GAMELOGINRSP 1810 / 0x0712)
+// 3. Hook recv() & recvfrom() & read()
 // -----------------------------------------------------------------------------
 static ssize_t my_recv(int sockfd, void *buf, size_t len, int flags) {
     ssize_t ret = recv(sockfd, buf, len, flags);
-    if (ret >= 16 && buf) {
-        const unsigned char *p = (const unsigned char *)buf;
-        uint32_t msg_id = (p[0] << 24) | (p[1] << 16) | (p[2] << 8) | p[3];
-        if (msg_id == 1810) {
-            write_log("[RECV] >>> SCPKG_CMD_GAMELOGINRSP (1810 / 0x0712 - LOGIN THANH CONG!) <<<");
-        } else if (msg_id == 1812) {
-            write_log("[RECV] >>> SCPKG_CMD_GAMELOGINLIMIT (1812 / 0x0714 - GIOI HAN/BAO TRI) <<<");
-        } else if (msg_id == 1799) {
-            write_log("[RECV] >>> SCPKG_LOGIN_REDIRECT_NTY (1799 / 0x0707 - CHUYEN HUONG SERVER) <<<");
-        }
+    if (ret > 0 && sockfd >= 0 && sockfd < MAX_TRACK_FDS && g_candidate_ports[sockfd] > 0) {
+        dump_traffic_bytes("RECV", sockfd, g_candidate_ports[sockfd], g_candidate_ips[sockfd], buf, ret);
     }
     return ret;
 }
 DYLD_INTERPOSE(my_recv, recv);
 
+static ssize_t my_recvfrom(int sockfd, void *buf, size_t len, int flags, struct sockaddr *src_addr, socklen_t *addrlen) {
+    ssize_t ret = recvfrom(sockfd, buf, len, flags, src_addr, addrlen);
+    if (ret > 0 && sockfd >= 0 && sockfd < MAX_TRACK_FDS && g_candidate_ports[sockfd] > 0) {
+        dump_traffic_bytes("RECVFROM", sockfd, g_candidate_ports[sockfd], g_candidate_ips[sockfd], buf, ret);
+    }
+    return ret;
+}
+DYLD_INTERPOSE(my_recvfrom, recvfrom);
+
+static ssize_t my_read(int fd, void *buf, size_t count) {
+    ssize_t ret = read(fd, buf, count);
+    if (ret > 0 && fd >= 0 && fd < MAX_TRACK_FDS && g_candidate_ports[fd] > 0) {
+        dump_traffic_bytes("READ", fd, g_candidate_ports[fd], g_candidate_ips[fd], buf, ret);
+    }
+    return ret;
+}
+DYLD_INTERPOSE(my_read, read);
+
+// -----------------------------------------------------------------------------
+// 4. Hook close() để dọn dẹp fd tracking
+// -----------------------------------------------------------------------------
+static int my_close(int fd) {
+    if (fd >= 0 && fd < MAX_TRACK_FDS) {
+        g_candidate_ports[fd] = 0;
+        g_candidate_ips[fd][0] = '\0';
+    }
+    return close(fd);
+}
+DYLD_INTERPOSE(my_close, close);
+
 __attribute__((constructor))
 static void entry(void) {
     init_logger();
-    write_log("[LOBBY_LOGGER] Sniffer initialized successfully.");
+    write_log("[LOBBY_LOGGER] Sniffer v2.0 initialized (All Socket IO hooked).");
 }
